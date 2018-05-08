@@ -5,6 +5,9 @@ import numpy as np
 
 import h5py, pdb
 
+### Function to turn the hdf5 grid output from Starfish itself into a numpy array
+#   Also returns the wavelength array and an array of temps corresponding to each entry in the template grid
+
 def makeGridNumpy():
     
     gridIN     = h5py.File( 'grid.hdf5', 'r' )
@@ -18,37 +21,89 @@ def makeGridNumpy():
         modstr        = 't' + str( int( model_Teff[i] ) ) + 'g4.5Z0.0'
         
         model_flux[i] = np.array( gridIN['flux'][modstr] )
-        
+
     return model_flux, model_wl, model_Teff
 
-def whitenTemplates( models ):
+### Function to whiten the templates
+#   Returns the whitened grid, can be made to return the mean and standard deviation as well
+    
+def whitenTemplates( models, return_musig = False ):
     
     template_mean = np.sum( models, axis = 0 ) / models.size
     template_std  = np.sqrt( np.sum( ( models - template_mean ) ** 2.0, axis = 0 ) )
     
     models_whtnd  = ( models - template_mean ) / template_std
     
-    return models_whtnd
+    if return_musig: return models_whtnd, template_mean, template_std
+    else: return models_whtnd
 
-def getPCA( flux ):
-    
-    pcatest    = PCA( n_components = 30 )
-    pcafittest = pcatest.fit( flux )
+### Function that takes in the model grid fluxes and returns the eigenspectra
+#   Also takes in the fraction of the variance you want to allow
+#   Also returns the number of PCA components kept for the variance fraction given
 
-    compsneed  = np.where( np.cumsum( pcafittest.explained_variance_ratio_ ) >= 0.98 )[0][0]
+def getPCA_Eigenspec( grid, varfrac = 0.98 ):
     
-    pcaout     = PCA( n_components = compsneed + 1 )
-    pcafit     = pcaout.fit( flux )
-    
-    return pcafit
+    pcatest     = PCA( n_components = 30 )
+    pcatest_fit = pcatest.fit( grid )
 
-def constructEigenspec( pca ):
+    compsneed   = np.where( np.cumsum( pcatest_fit.explained_variance_ratio_ ) >= varfrac )[0][0] + 1
     
-    eigenspec  = pca.components_.T  / pca.singular_values_
-    eigenspec /= np.sqrt( pca.n_samples_ )
+    pcaout      = PCA( n_components = compsneed )
+    pcafit      = pcaout.fit( grid )
     
-    return eigenspec
+    eigenspec   = pcafit.components_.T * pcafit.singular_values_
+    eigenspec  /= np.sqrt( pcafit.n_samples_ )
+    
+    return eigenspec, compsneed
 
+###
+    
+def calc_w_hat( grid, eigenspec ):
+    
+    eigen_pinv = np.linalg.pinv( eigenspec )
+    
+    test = eigenspec.T @ eigenspec
+    test[test<1e-15] = 0.0
+    test = np.linalg.inv( test )
+    
+    eigen_pinv = test @ eigenspec.T
+        
+    w_hat = eigen_pinv @ grid.T
+    
+    return w_hat, w_hat.reshape( w_hat.size )
+
+### 
+    
+def createPhiGrid( eigenspec, Nmodels ):
+    
+    eyemat  = np.eye( Nmodels )
+    
+    phigrid = []
+    
+    for i in range( eigenspec.shape[1] ):
+                
+        phigrid.append( np.kron( eyemat, eigenspec[:,i] ).T )
+        
+    return np.hstack( phigrid )
+
+###
+    
+def createCovK( params, hyperpars ):
+    
+    a, l = hyperpars
+    
+    K = np.zeros( ( params.size, params.size ) )
+    
+    for i in range( params.size ):
+        
+        for j in range( params.size ):
+            
+            pardif = params[i] - params[j]
+            
+            K[i,j] = a ** 2.0 * np.exp( - 0.5 * pardif * l ** 2.0 * pardif )
+
+    return K
+    
 def hyperpar_prior():
     
     a_gamma = 1
@@ -58,16 +113,12 @@ def hyperpar_prior():
 
 flux, wl, temps = makeGridNumpy()
 
-flux_whtnd = whitenTemplates( flux )
+flux_whtnd, mu, sigma = whitenTemplates( flux, return_musig = True )
 
-flux_pca   = getPCA( flux_whtnd )
+eigenspec, compsneed = getPCA_Eigenspec( flux_whtnd, varfrac = 0.98 )
 
-eigenspec  = constructEigenspec( flux_pca )
+w_hat_mat, w_hat_vec = calc_w_hat( flux_whtnd, eigenspec )
 
+phigrid = createPhiGrid( eigenspec, flux.shape[0] )
 
-
-
-
-
-
-
+print( phigrid.shape )
