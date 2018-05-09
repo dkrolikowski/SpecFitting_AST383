@@ -103,6 +103,23 @@ def createCovK( params, hyperpars ):
             K[i,j] = a ** 2.0 * np.exp( - 0.5 * pardif * l ** 2.0 * pardif )
 
     return K
+
+###
+    
+def createCovGrid( params, hyperpars, eigenspec ):
+    
+    eyemat  = np.eye( eigenspec.shape[1] )
+    
+    covgrid = []
+    
+    for i in range( eigenspec.shape[1] ):
+        
+        covmat = createCovK( params, hyperpars )
+        print(covmat.shape)
+        
+        covgrid.append( np.kron( eyemat, covmat ) )
+        
+    return np.hstack( covgrid )
     
 def hyperpar_prior():
     
@@ -121,4 +138,6 @@ w_hat_mat, w_hat_vec = calc_w_hat( flux_whtnd, eigenspec )
 
 phigrid = createPhiGrid( eigenspec, flux.shape[0] )
 
-print( phigrid.shape )
+covgrid = createCovGrid( temps, ( 1.0, 1.0 ), eigenspec )
+
+print( covgrid.shape )
