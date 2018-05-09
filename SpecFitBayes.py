@@ -3,7 +3,7 @@ from sklearn.decomposition import PCA
 import matplotlib.pyplot as plt
 import numpy as np
 
-import h5py, pdb
+import h5py, scipy.linalg, pdb
 
 ### Function to turn the hdf5 grid output from Starfish itself into a numpy array
 #   Also returns the wavelength array and an array of temps corresponding to each entry in the template grid
@@ -29,9 +29,9 @@ def makeGridNumpy():
     
 def whitenTemplates( models, return_musig = False ):
     
-    template_mean = np.sum( models, axis = 0 ) / models.size
-    template_std  = np.sqrt( np.sum( ( models - template_mean ) ** 2.0, axis = 0 ) )
-    
+    template_mean = np.mean( models, axis = 0 )
+    template_std = np.std( models, axis = 0 )
+        
     models_whtnd  = ( models - template_mean ) / template_std
     
     if return_musig: return models_whtnd, template_mean, template_std
@@ -45,7 +45,7 @@ def getPCA_Eigenspec( grid, varfrac = 0.98 ):
     
     pcatest     = PCA( n_components = 30 )
     pcatest_fit = pcatest.fit( grid )
-
+    
     compsneed   = np.where( np.cumsum( pcatest_fit.explained_variance_ratio_ ) >= varfrac )[0][0] + 1
     
     pcaout      = PCA( n_components = compsneed )
@@ -107,19 +107,24 @@ def createCovK( params, hyperpars ):
 ###
     
 def createCovGrid( params, hyperpars, eigenspec ):
-    
-    eyemat  = np.eye( eigenspec.shape[1] )
-    
-    covgrid = []
+        
+    covmatarr = []
     
     for i in range( eigenspec.shape[1] ):
         
         covmat = createCovK( params, hyperpars )
-        print(covmat.shape)
+
+        covmatarr.append( covmat )
         
-        covgrid.append( np.kron( eyemat, covmat ) )
-        
-    return np.hstack( covgrid )
+    return scipy.linalg.block_diag( *covmatarr )
+
+###
+    
+def createCovStar( thetastar, params, hyperpars ):
+    
+    a, l = hyperpars
+    
+    K = np.zeros( )
     
 def hyperpar_prior():
     
@@ -140,4 +145,9 @@ phigrid = createPhiGrid( eigenspec, flux.shape[0] )
 
 covgrid = createCovGrid( temps, ( 1.0, 1.0 ), eigenspec )
 
-print( covgrid.shape )
+
+
+
+
+
+
