@@ -1,12 +1,25 @@
 from sklearn.decomposition import PCA
+from scipy import stats
 
 import matplotlib.pyplot as plt
 import numpy as np
+
+import bspline_acr as bspl
 
 import h5py, scipy.linalg, pdb
 
 ### Function to turn the hdf5 grid output from Starfish itself into a numpy array
 #   Also returns the wavelength array and an array of temps corresponding to each entry in the template grid
+
+def contfit( flux ):
+    
+    cont = flux.copy()
+    xarr = np.arange( flux.size, dtype = np.float )
+    
+    spl  = bspl.iterfit( xarr, flux, bkspace = 1250, upper = 2.0, lower = 0.2, maxiter = 15, nord = 3 )[0]
+    cont = spl.value( xarr )[0]
+    
+    return flux / cont
 
 def makeGridNumpy():
     
@@ -20,7 +33,8 @@ def makeGridNumpy():
         
         modstr        = 't' + str( int( model_Teff[i] ) ) + 'g4.5Z0.0'
         
-        model_flux[i] = np.array( gridIN['flux'][modstr] )
+        thisflux      = np.array( gridIN['flux'][modstr] )
+        model_flux[i] = contfit( thisflux )
 
     return model_flux, model_wl, model_Teff
 
@@ -218,6 +232,30 @@ def hyperpar_prior():
     b_gamma = 1e-4
     
     return np.random.gamma( a_gamma, b_gamma )
+
+### Stuff for emcee
+    
+def loglikelihood( x, data, xivals, eigenspec ):
+    
+    xi_mu, xi_sigma = xivals
+    mu_w, sigma_w   = calcMuSigma_w()
+    
+    C = calcObsCov()
+    
+    mu    = xi_mu + xi_sigma * ( eigenspec @ mu_w )
+    sigma = ( xi_sigma * eigenspec ) @ sigma_w @ ( xi_sigma * eigenspec ).T + C
+    
+    lnlike = np.log( stats.multivariate_normal( mean = mu, cov = sigma ).pdf( data ) )
+    
+    return lnlike
+
+def logpriors( hyperpar ):
+    
+    distr  = stats.gamma( a = 1, scale = 1e-4 )
+    
+    lnprior = np.log( distr.pdf( hyperpar ) )
+    
+    return lnprior
 
 flux, wl, temps = makeGridNumpy()
 
