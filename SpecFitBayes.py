@@ -88,7 +88,7 @@ def createPhiGrid( eigenspec, Nmodels ):
 
 ###
     
-def createCovK( params, hyperpars ):
+def createK( params, hyperpars ):
     
     a, l = hyperpars
     
@@ -106,13 +106,13 @@ def createCovK( params, hyperpars ):
 
 ###
     
-def createCovGrid( params, hyperpars, eigenspec ):
+def createSigmaGrid( params, hyperpars, eigenspec ):
         
     covmatarr = []
     
     for i in range( eigenspec.shape[1] ):
         
-        covmat = createCovK( params, hyperpars )
+        covmat = createK( params, hyperpars )
 
         covmatarr.append( covmat )
         
@@ -120,11 +120,97 @@ def createCovGrid( params, hyperpars, eigenspec ):
 
 ###
     
-def createCovStar( thetastar, params, hyperpars ):
+def createSigmaStar( thetastar, hyperpars, eigenspec ):
     
     a, l = hyperpars
     
-    K = np.zeros( )
+    sigmastar = np.diag( a ** 2.0 * np.ones( eigenspec.shape[1] ) )
+
+    return sigmastar
+
+###
+
+def createSigmaGridStar( thetastar, params, hyperpars, eigenspec ):
+    
+    a, l = hyperpars
+    
+    sigmagridstar = np.zeros( ( params.size * eigenspec.shape[1], eigenspec.shape[1] ) )
+    
+    for i in range( params.size ):
+        
+        pardif = params[i] - thetastar
+        
+        for j in range( eigenspec.shape[1] ):
+
+            sigmagridstar[i,j] = a ** 2.0 * np.exp( -0.5 * pardif * l ** 2.0 * pardif )
+
+    return sigmagridstar
+
+###
+    
+def calcInverse4Sigma_w( hyperpars, phigrid, sigmagrid, sigmagridstar ):
+    
+    l = hyperpars
+    
+    A = l * ( phigrid.T @ phigrid ) + sigmagrid
+    
+    return np.linalg.solve( A, sigmagridstar )
+
+###
+
+def calcInverse4mu_w( hyperpars, phigrid, sigmagrid, whatgrid ):
+    
+    l = hyperpars
+    
+    A = l * ( phigrid.T @ phigrid ) + sigmagrid
+    
+    return np.linalg.solve( A, whatgrid )
+    
+###
+    
+def calcMuSigma_w( hyperpars, phigrid, sigmagrid, sigmagridstar, whatgrid ):
+    
+    inv4sig = calcInverse4Sigma_w( hyperpars, phigrid, sigmagrid, sigmagridstar )
+    
+    inv4mu  = calcInverse4mu_w( hyperpars, phigrid, sigmagrid, whatgrid )
+    
+    mu_w    = sigmagridstar.T @ inv4mu
+    
+    sigma_w = sigmastar - ( sigmagridstar.T @ inv4sig )
+    
+    return mu_w, sigma_w
+
+###
+    
+def MaternWeight( r, r0 ):
+    
+    if r <= r0:
+        
+        return 0.5 + 0.5 * np.cos( np.pi * r / r0 )
+    
+    else:
+    
+        return 0.0
+    
+def calcObsCov( hyperpars, wl ):
+    
+    a, l = hyperpars
+    
+    r0 = 4 * l
+    
+    C = np.zeros( ( wl.size, wl.size ) )
+    
+    for i in range( C.shape[0] ):
+        
+        for j in range( C.shape[1] ):
+            
+            r = 0.5 * 3e5 * np.abs( ( wl[i] - wl[j] ) ) / ( wl[i] + wl[j] )
+            
+            w = MaternWeight( r, r0 )
+            
+            C[i,j] =  w * a * ( 1 + np.sqrt(3) * r / l ) * np.exp( - np.sqrt(3) * r / l )
+    
+    return C
     
 def hyperpar_prior():
     
@@ -143,8 +229,13 @@ w_hat_mat, w_hat_vec = calc_w_hat( flux_whtnd, eigenspec )
 
 phigrid = createPhiGrid( eigenspec, flux.shape[0] )
 
-covgrid = createCovGrid( temps, ( 1.0, 1.0 ), eigenspec )
+covgrid = createSigmaGrid( temps, ( 1.0, 1.0 ), eigenspec )
 
+sigmastar = createSigmaStar( 4250, ( 1.0, 1.0 ), eigenspec )
+
+sigmagridstar = createSigmaGridStar( 4250, temps, ( 1.0, 1.0 ), eigenspec )
+
+testmu, testsig = calcMuSigma_w( 1.0, phigrid, covgrid, sigmagridstar, w_hat_vec )
 
 
 
